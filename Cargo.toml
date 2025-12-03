@@ -1,16 +1,16 @@
 [package]
 name = "stuckbar"
-version = "0.1.0"
-edition = "2024"
-rust-version = "1.91.1"
+version = "0.1.1"
+edition = "2021"
+rust-version = "1.70"
 description = "A CLI tool for restarting Windows Explorer when the taskbar gets stuck"
 license = "MIT"
-authors = ["Baalateja Kataru"]
+authors = ["bkataru (Baalateja Kataru)"]
 repository = "https://github.com/bkataru/stuckbar"
 homepage = "https://github.com/bkataru/stuckbar"
-documentation = "https://github.com/bkataru/stuckbar#readme"
+documentation = "https://docs.rs/stuckbar"
 readme = "README.md"
-keywords = ["windows", "taskbar", "explorer", "cli", "utility"]
+keywords = ["windows", "taskbar", "explorer", "cli", "mcp"]
 categories = ["command-line-utilities"]
 exclude = [
     ".gitignore",
@@ -18,10 +18,30 @@ exclude = [
     "target/*",
 ]
 
+[features]
+default = []
+# Enable MCP server support (STDIO transport)
+mcp = ["dep:rmcp", "dep:tokio", "dep:serde_json"]
+# Enable MCP HTTP transport (requires mcp feature)
+mcp-http = ["mcp", "rmcp/transport-sse-server", "dep:axum", "dep:tokio-util"]
+# Enable all MCP features
+mcp-full = ["mcp", "mcp-http"]
+
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
 colored = "2.1"
 
+# MCP dependencies (optional)
+rmcp = { version = "0.10", features = ["server", "transport-io", "macros"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"], optional = true }
+axum = { version = "0.8", optional = true }
+tokio-util = { version = "0.7", optional = true }
+serde_json = { version = "1.0", optional = true }
+
 [[bin]]
 name = "stuckbar"
 path = "src/main.rs"
+
+[lib]
+name = "stuckbar"
+path = "src/lib.rs"

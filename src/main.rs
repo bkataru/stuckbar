@@ -1,14 +1,17 @@
+#[cfg(feature = "mcp")]
+use clap::Args;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
-use std::process::Command;
-
-/// Delay in milliseconds before starting explorer.exe after termination
-const RESTART_DELAY_MS: u64 = 500;
+use stuckbar::{check_platform, ExplorerManager, SystemProcessRunner};
 
 #[derive(Parser)]
 #[command(
     name = "stuckbar",
     about = "A CLI tool for restarting Windows Explorer when the taskbar gets stuck",
+    long_about = "A CLI tool for restarting Windows Explorer when the taskbar gets stuck.\n\n\
+                  This tool is Windows-only and provides commands to kill, start, or restart \
+                  explorer.exe. It also supports running as an MCP (Model Context Protocol) \
+                  server for AI agent integration.",
     version,
     author
 )]
@@ -25,158 +28,88 @@ pub enum Commands {
     Start,
     /// Restart explorer.exe (kill then start)
     Restart,
+    /// Start an MCP server for AI agent integration
+    #[cfg(feature = "mcp")]
+    Serve(ServeArgs),
 }
 
-/// Result of a process operation
-#[derive(Debug, PartialEq)]
-pub struct ProcessResult {
-    pub success: bool,
-    pub message: String,
+/// Arguments for the serve command
+#[cfg(feature = "mcp")]
+#[derive(Args, Debug, Clone, PartialEq)]
+pub struct ServeArgs {
+    /// Use STDIO transport (for direct process communication)
+    #[arg(long, group = "transport")]
+    pub stdio: bool,
+
+    /// Use HTTP transport (for network-based communication)
+    #[cfg(feature = "mcp-http")]
+    #[arg(long, group = "transport")]
+    pub http: bool,
+
+    /// Host address to bind to (only used with --http)
+    #[cfg(feature = "mcp-http")]
+    #[arg(long, default_value = "127.0.0.1", requires = "http")]
+    pub host: String,
+
+    /// Port number to listen on (only used with --http)
+    #[cfg(feature = "mcp-http")]
+    #[arg(long, default_value = "8080", requires = "http")]
+    pub port: u16,
 }
 
-impl ProcessResult {
-    pub fn success(message: impl Into<String>) -> Self {
-        Self {
-            success: true,
-            message: message.into(),
-        }
-    }
-
-    pub fn failure(message: impl Into<String>) -> Self {
-        Self {
-            success: false,
-            message: message.into(),
-        }
-    }
-}
-
-/// Trait for abstracting process operations (enables testing)
-pub trait ProcessRunner {
-    fn kill_process(&self, process_name: &str) -> ProcessResult;
-    fn start_process(&self, process_name: &str) -> ProcessResult;
-    fn sleep_ms(&self, ms: u64);
-}
-
-/// Real implementation that interacts with the system
-pub struct SystemProcessRunner;
-
-impl ProcessRunner for SystemProcessRunner {
-    fn kill_process(&self, process_name: &str) -> ProcessResult {
-        let result = Command::new("taskkill")
-            .args(["/F", "/IM", process_name])
-            .output();
-
-        match result {
-            Ok(output) => {
-                if output.status.success() {
-                    ProcessResult::success(format!("Successfully terminated {}", process_name))
-                } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    ProcessResult::failure(format!(
-                        "Failed to terminate {}: {}",
-                        process_name, stderr
-                    ))
-                }
-            }
-            Err(e) => ProcessResult::failure(format!("Error executing taskkill: {}", e)),
-        }
-    }
-
-    fn start_process(&self, process_name: &str) -> ProcessResult {
-        let result = Command::new(process_name).spawn();
-
-        match result {
-            Ok(_) => ProcessResult::success(format!("Successfully started {}", process_name)),
-            Err(e) => ProcessResult::failure(format!("Error starting {}: {}", process_name, e)),
-        }
-    }
-
-    fn sleep_ms(&self, ms: u64) {
-        std::thread::sleep(std::time::Duration::from_millis(ms));
-    }
-}
-
-/// Explorer manager that handles explorer.exe operations
-pub struct ExplorerManager<R: ProcessRunner> {
-    runner: R,
-    restart_delay_ms: u64,
-}
-
-impl<R: ProcessRunner> ExplorerManager<R> {
-    pub fn new(runner: R) -> Self {
-        Self {
-            runner,
-            restart_delay_ms: RESTART_DELAY_MS,
-        }
-    }
-
-    pub fn with_restart_delay(mut self, delay_ms: u64) -> Self {
-        self.restart_delay_ms = delay_ms;
-        self
-    }
-
-    pub fn kill(&self) -> bool {
-        println!("{}", "Terminating explorer.exe...".yellow());
-        let result = self.runner.kill_process("explorer.exe");
-
-        if result.success {
-            println!("{}", result.message.green());
-        } else {
-            eprintln!("{}", result.message.red());
-        }
-
-        result.success
-    }
-
-    pub fn start(&self) -> bool {
-        println!("{}", "Starting explorer.exe...".yellow());
-        let result = self.runner.start_process("explorer.exe");
-
-        if result.success {
-            println!("{}", result.message.green());
-        } else {
-            eprintln!("{}", result.message.red());
-        }
-
-        result.success
-    }
-
-    pub fn restart(&self) -> bool {
-        println!("{}", "Restarting explorer.exe...".cyan().bold());
-
-        if !self.kill() {
-            return false;
-        }
-
-        // Small delay to ensure explorer is fully terminated
-        self.runner.sleep_ms(self.restart_delay_ms);
-
-        if !self.start() {
-            return false;
-        }
-
-        println!("{}", "Explorer.exe restarted successfully!".green().bold());
-        true
-    }
-}
-
-/// Execute the CLI command with a given process runner
-pub fn run_with_runner<R: ProcessRunner>(command: Option<Commands>, runner: R) -> bool {
-    let manager = ExplorerManager::new(runner);
+/// Execute the CLI command
+fn run_command(command: Option<Commands>) -> bool {
+    let manager = ExplorerManager::new(SystemProcessRunner);
 
     match command {
         Some(Commands::Kill) => manager.kill(),
         Some(Commands::Start) => manager.start(),
         Some(Commands::Restart) => manager.restart(),
+        #[cfg(feature = "mcp")]
+        Some(Commands::Serve(args)) => {
+            run_mcp_server(args);
+            true
+        }
         None => manager.restart(),
     }
 }
 
-fn main() {
-    let cli = Cli::parse();
-    let runner = SystemProcessRunner;
+/// Run the MCP server with the specified transport
+#[cfg(feature = "mcp")]
+#[allow(unused_variables)]
+fn run_mcp_server(args: ServeArgs) {
+    use tokio::runtime::Runtime;
 
-    let success = run_with_runner(cli.command, runner);
+    let rt = Runtime::new().expect("Failed to create Tokio runtime");
+
+    rt.block_on(async {
+        #[cfg(feature = "mcp-http")]
+        if args.http {
+            if let Err(e) = stuckbar::mcp::run_http_server(&args.host, args.port).await {
+                eprintln!("{} {}", "MCP HTTP server error:".red(), e);
+                std::process::exit(1);
+            }
+            return;
+        }
+
+        // Default to STDIO if no transport specified or --stdio flag used
+        if let Err(e) = stuckbar::mcp::run_stdio_server().await {
+            eprintln!("{} {}", "MCP STDIO server error:".red(), e);
+            std::process::exit(1);
+        }
+    });
+}
+
+fn main() {
+    // Check platform before doing anything
+    if let Err(e) = check_platform() {
+        eprintln!("{}", e.red().bold());
+        std::process::exit(1);
+    }
+
+    let cli = Cli::parse();
+
+    let success = run_command(cli.command);
 
     if !success {
         std::process::exit(1);
@@ -186,230 +119,6 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
-
-    /// Mock process runner for testing
-    struct MockProcessRunner {
-        kill_results: RefCell<Vec<ProcessResult>>,
-        start_results: RefCell<Vec<ProcessResult>>,
-        sleep_calls: RefCell<Vec<u64>>,
-    }
-
-    impl MockProcessRunner {
-        fn new() -> Self {
-            Self {
-                kill_results: RefCell::new(Vec::new()),
-                start_results: RefCell::new(Vec::new()),
-                sleep_calls: RefCell::new(Vec::new()),
-            }
-        }
-
-        fn with_kill_result(self, result: ProcessResult) -> Self {
-            self.kill_results.borrow_mut().push(result);
-            self
-        }
-
-        fn with_start_result(self, result: ProcessResult) -> Self {
-            self.start_results.borrow_mut().push(result);
-            self
-        }
-
-        fn get_sleep_calls(&self) -> Vec<u64> {
-            self.sleep_calls.borrow().clone()
-        }
-    }
-
-    impl ProcessRunner for MockProcessRunner {
-        fn kill_process(&self, _process_name: &str) -> ProcessResult {
-            self.kill_results
-                .borrow_mut()
-                .pop()
-                .unwrap_or_else(|| ProcessResult::failure("No mock result configured"))
-        }
-
-        fn start_process(&self, _process_name: &str) -> ProcessResult {
-            self.start_results
-                .borrow_mut()
-                .pop()
-                .unwrap_or_else(|| ProcessResult::failure("No mock result configured"))
-        }
-
-        fn sleep_ms(&self, ms: u64) {
-            self.sleep_calls.borrow_mut().push(ms);
-        }
-    }
-
-    // ProcessResult tests
-    #[test]
-    fn test_process_result_success() {
-        let result = ProcessResult::success("test message");
-        assert!(result.success);
-        assert_eq!(result.message, "test message");
-    }
-
-    #[test]
-    fn test_process_result_failure() {
-        let result = ProcessResult::failure("error message");
-        assert!(!result.success);
-        assert_eq!(result.message, "error message");
-    }
-
-    // ExplorerManager::kill tests
-    #[test]
-    fn test_kill_success() {
-        let runner = MockProcessRunner::new().with_kill_result(ProcessResult::success("Killed"));
-        let manager = ExplorerManager::new(runner);
-
-        assert!(manager.kill());
-    }
-
-    #[test]
-    fn test_kill_failure() {
-        let runner =
-            MockProcessRunner::new().with_kill_result(ProcessResult::failure("Failed to kill"));
-        let manager = ExplorerManager::new(runner);
-
-        assert!(!manager.kill());
-    }
-
-    // ExplorerManager::start tests
-    #[test]
-    fn test_start_success() {
-        let runner = MockProcessRunner::new().with_start_result(ProcessResult::success("Started"));
-        let manager = ExplorerManager::new(runner);
-
-        assert!(manager.start());
-    }
-
-    #[test]
-    fn test_start_failure() {
-        let runner =
-            MockProcessRunner::new().with_start_result(ProcessResult::failure("Failed to start"));
-        let manager = ExplorerManager::new(runner);
-
-        assert!(!manager.start());
-    }
-
-    // ExplorerManager::restart tests
-    #[test]
-    fn test_restart_success() {
-        let runner = MockProcessRunner::new()
-            .with_kill_result(ProcessResult::success("Killed"))
-            .with_start_result(ProcessResult::success("Started"));
-        let manager = ExplorerManager::new(runner).with_restart_delay(100);
-
-        assert!(manager.restart());
-    }
-
-    #[test]
-    fn test_restart_kill_fails() {
-        let runner =
-            MockProcessRunner::new().with_kill_result(ProcessResult::failure("Failed to kill"));
-        let manager = ExplorerManager::new(runner);
-
-        assert!(!manager.restart());
-    }
-
-    #[test]
-    fn test_restart_start_fails() {
-        let runner = MockProcessRunner::new()
-            .with_kill_result(ProcessResult::success("Killed"))
-            .with_start_result(ProcessResult::failure("Failed to start"));
-        let manager = ExplorerManager::new(runner);
-
-        assert!(!manager.restart());
-    }
-
-    #[test]
-    fn test_restart_sleeps_between_operations() {
-        let runner = MockProcessRunner::new()
-            .with_kill_result(ProcessResult::success("Killed"))
-            .with_start_result(ProcessResult::success("Started"));
-        let manager = ExplorerManager::new(runner).with_restart_delay(250);
-
-        // Get a reference before moving runner into manager
-        let runner_ref = &manager.runner;
-
-        manager.restart();
-
-        let sleep_calls = runner_ref.get_sleep_calls();
-        assert_eq!(sleep_calls.len(), 1);
-        assert_eq!(sleep_calls[0], 250);
-    }
-
-    #[test]
-    fn test_restart_uses_default_delay() {
-        let runner = MockProcessRunner::new()
-            .with_kill_result(ProcessResult::success("Killed"))
-            .with_start_result(ProcessResult::success("Started"));
-        let manager = ExplorerManager::new(runner);
-
-        assert_eq!(manager.restart_delay_ms, RESTART_DELAY_MS);
-    }
-
-    // run_with_runner tests
-    #[test]
-    fn test_run_with_runner_kill_command() {
-        let runner = MockProcessRunner::new().with_kill_result(ProcessResult::success("Killed"));
-
-        assert!(run_with_runner(Some(Commands::Kill), runner));
-    }
-
-    #[test]
-    fn test_run_with_runner_start_command() {
-        let runner = MockProcessRunner::new().with_start_result(ProcessResult::success("Started"));
-
-        assert!(run_with_runner(Some(Commands::Start), runner));
-    }
-
-    #[test]
-    fn test_run_with_runner_restart_command() {
-        let runner = MockProcessRunner::new()
-            .with_kill_result(ProcessResult::success("Killed"))
-            .with_start_result(ProcessResult::success("Started"));
-
-        assert!(run_with_runner(Some(Commands::Restart), runner));
-    }
-
-    #[test]
-    fn test_run_with_runner_no_command_defaults_to_restart() {
-        let runner = MockProcessRunner::new()
-            .with_kill_result(ProcessResult::success("Killed"))
-            .with_start_result(ProcessResult::success("Started"));
-
-        // None should behave like restart
-        assert!(run_with_runner(None, runner));
-    }
-
-    #[test]
-    fn test_run_with_runner_kill_failure_returns_false() {
-        let runner = MockProcessRunner::new().with_kill_result(ProcessResult::failure("Error"));
-
-        assert!(!run_with_runner(Some(Commands::Kill), runner));
-    }
-
-    #[test]
-    fn test_run_with_runner_start_failure_returns_false() {
-        let runner = MockProcessRunner::new().with_start_result(ProcessResult::failure("Error"));
-
-        assert!(!run_with_runner(Some(Commands::Start), runner));
-    }
-
-    // Commands enum tests
-    #[test]
-    fn test_commands_equality() {
-        assert_eq!(Commands::Kill, Commands::Kill);
-        assert_eq!(Commands::Start, Commands::Start);
-        assert_eq!(Commands::Restart, Commands::Restart);
-        assert_ne!(Commands::Kill, Commands::Start);
-    }
-
-    #[test]
-    fn test_commands_clone() {
-        let cmd = Commands::Restart;
-        let cloned = cmd.clone();
-        assert_eq!(cmd, cloned);
-    }
 
     // CLI parsing tests
     #[test]
@@ -438,14 +147,12 @@ mod tests {
 
     #[test]
     fn test_cli_version_flag() {
-        // This tests that --version is recognized (it will cause early exit in real usage)
         let result = Cli::try_parse_from(["stuckbar", "--version"]);
         assert!(result.is_err()); // clap returns Err for --version
     }
 
     #[test]
     fn test_cli_help_flag() {
-        // This tests that --help is recognized (it will cause early exit in real usage)
         let result = Cli::try_parse_from(["stuckbar", "--help"]);
         assert!(result.is_err()); // clap returns Err for --help
     }
@@ -456,11 +163,75 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // ExplorerManager builder pattern test
+    // Commands enum tests
     #[test]
-    fn test_explorer_manager_with_restart_delay() {
-        let runner = MockProcessRunner::new();
-        let manager = ExplorerManager::new(runner).with_restart_delay(1000);
-        assert_eq!(manager.restart_delay_ms, 1000);
+    fn test_commands_equality() {
+        assert_eq!(Commands::Kill, Commands::Kill);
+        assert_eq!(Commands::Start, Commands::Start);
+        assert_eq!(Commands::Restart, Commands::Restart);
+        assert_ne!(Commands::Kill, Commands::Start);
+    }
+
+    #[test]
+    fn test_commands_clone() {
+        let cmd = Commands::Restart;
+        let cloned = cmd.clone();
+        assert_eq!(cmd, cloned);
+    }
+
+    // MCP serve command tests
+    #[cfg(feature = "mcp")]
+    #[test]
+    fn test_cli_parse_serve_stdio() {
+        let cli = Cli::parse_from(["stuckbar", "serve", "--stdio"]);
+        match cli.command {
+            Some(Commands::Serve(args)) => {
+                assert!(args.stdio);
+            }
+            _ => panic!("Expected Serve command"),
+        }
+    }
+
+    #[cfg(all(feature = "mcp", feature = "mcp-http"))]
+    #[test]
+    fn test_cli_parse_serve_http() {
+        let cli = Cli::parse_from(["stuckbar", "serve", "--http"]);
+        match cli.command {
+            Some(Commands::Serve(args)) => {
+                assert!(args.http);
+                assert_eq!(args.host, "127.0.0.1");
+                assert_eq!(args.port, 8080);
+            }
+            _ => panic!("Expected Serve command"),
+        }
+    }
+
+    #[cfg(all(feature = "mcp", feature = "mcp-http"))]
+    #[test]
+    fn test_cli_parse_serve_http_custom_port() {
+        let cli = Cli::parse_from(["stuckbar", "serve", "--http", "--port", "3000"]);
+        match cli.command {
+            Some(Commands::Serve(args)) => {
+                assert!(args.http);
+                assert_eq!(args.port, 3000);
+            }
+            _ => panic!("Expected Serve command"),
+        }
+    }
+
+    #[cfg(all(feature = "mcp", feature = "mcp-http"))]
+    #[test]
+    fn test_cli_parse_serve_http_custom_host_port() {
+        let cli = Cli::parse_from([
+            "stuckbar", "serve", "--http", "--host", "0.0.0.0", "--port", "9000",
+        ]);
+        match cli.command {
+            Some(Commands::Serve(args)) => {
+                assert!(args.http);
+                assert_eq!(args.host, "0.0.0.0");
+                assert_eq!(args.port, 9000);
+            }
+            _ => panic!("Expected Serve command"),
+        }
     }
 }
