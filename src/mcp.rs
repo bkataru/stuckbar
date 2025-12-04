@@ -32,10 +32,10 @@
 //! stuckbar serve --http --host 0.0.0.0 --port 8080
 //! ```
 
-use crate::{check_platform, ExplorerManager, SystemProcessRunner};
+use crate::{ExplorerManager, SystemProcessRunner, check_platform};
 use rmcp::{
-    handler::server::router::tool::ToolRouter, model::*, tool, tool_handler, tool_router,
-    transport::stdio, ErrorData as McpError, ServerHandler, ServiceExt,
+    ErrorData as McpError, ServerHandler, ServiceExt, handler::server::router::tool::ToolRouter,
+    model::*, tool, tool_handler, tool_router, transport::stdio,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;

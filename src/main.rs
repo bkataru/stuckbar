@@ -2,7 +2,7 @@
 use clap::Args;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
-use stuckbar::{check_platform, ExplorerManager, SystemProcessRunner};
+use stuckbar::{ExplorerManager, SystemProcessRunner, check_platform};
 
 #[derive(Parser)]
 #[command(
