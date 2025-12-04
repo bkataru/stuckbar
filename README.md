@@ -1,8 +1,8 @@
 # stuckbar
 
-A straightforward CLI tool for getting that annoying Windows taskbar unstuck.
+A straightforward CLI tool & MCP server for getting that annoying Windows taskbar unstuck.
 
-When the Windows taskbar gets stuck (especially when configured to auto-hide), this utility provides a quick way to restart `explorer.exe` from the command line, which snaps the taskbar back to normal.
+When the Windows taskbar gets stuck (especially when configured to auto-hide), this utility provides a quick way to restart `explorer.exe` from the command line or via MCP tool calls, snapping the taskbar back to normal.
 
 > **⚠️ Windows Only**: This tool is designed specifically for Windows and will not work on macOS or Linux.
 
