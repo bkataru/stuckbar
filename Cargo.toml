@@ -1,9 +1,9 @@
 [package]
 name = "stuckbar"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.70"
-description = "A CLI tool for restarting Windows Explorer when the taskbar gets stuck"
+description = "A straightforward CLI tool & MCP server for restarting Windows Explorer when the taskbar gets stuck"
 license = "MIT"
 authors = ["bkataru (Baalateja Kataru)"]
 repository = "https://github.com/bkataru/stuckbar"
