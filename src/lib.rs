@@ -361,12 +361,9 @@ mod tests {
             .with_start_result(ProcessResult::success("Started"));
         let manager = ExplorerManager::new(runner).with_restart_delay(250);
 
-        // Get a reference before moving runner into manager
-        let runner_ref = &manager.runner;
-
         manager.restart();
 
-        let sleep_calls = runner_ref.get_sleep_calls();
+        let sleep_calls = &manager.runner.get_sleep_calls();
         assert_eq!(sleep_calls.len(), 1);
         assert_eq!(sleep_calls[0], 250);
     }
