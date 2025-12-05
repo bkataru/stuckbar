@@ -1,5 +1,10 @@
 # stuckbar
 
+[![Crates.io](https://img.shields.io/crates/v/stuckbar.svg)](https://crates.io/crates/stuckbar)
+[![Documentation](https://docs.rs/stuckbar/badge.svg)](https://docs.rs/stuckbar)
+[![CI](https://github.com/bkataru/stuckbar/actions/workflows/ci.yml/badge.svg)](https://github.com/bkataru/stuckbar/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A straightforward CLI tool & MCP server for getting that annoying Windows taskbar unstuck.
 
 When the Windows taskbar gets stuck (especially when configured to auto-hide), this utility provides a quick way to restart `explorer.exe` from the command line or via MCP tool calls, snapping the taskbar back to normal.
