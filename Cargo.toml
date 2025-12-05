@@ -1,6 +1,6 @@
 [package]
 name = "stuckbar"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 rust-version = "1.91"
 description = "A straightforward CLI tool & MCP server for restarting Windows Explorer when the taskbar gets stuck"
@@ -29,7 +29,7 @@ mcp-full = ["mcp", "mcp-http"]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
-colored = "2.1"
+colored = "3.0"
 
 # MCP dependencies (optional)
 rmcp = { version = "0.10", features = ["server", "transport-io", "macros"], optional = true }
